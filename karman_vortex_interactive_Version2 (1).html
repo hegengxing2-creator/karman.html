@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>交互式卡门涡街（SVG + JS 动画）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --ui-bg:#0f1724;
+    --panel-bg:#0b1220;
+    --accent:#2dd4bf;
+    --muted:#9aa4b2;
+    --card:#071024;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+    background: linear-gradient(180deg,#071028 0%, #07101a 60%, #06111a 100%);
+    color:#e6eef6;
+  }
+  .app{
+    display:flex;
+    gap:20px;
+    padding:20px;
+    box-sizing:border-box;
+    align-items:flex-start;
+    max-width:1200px;
+    margin:0 auto;
+  }
+
+  /* 左侧 SVG 可视化区域 */
+  .viz{
+    background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:10px;
+    padding:14px;
+    box-shadow: 0 6px 24px rgba(2,6,23,0.6);
+    flex:1 1 720px;
+  }
+  svg{
+    width:100%;
+    height:440px;
+    display:block;
+    background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));
+    border-radius:6px;
+    overflow:visible;
+  }
+  .hud{
+    display:flex;
+    gap:14px;
+    margin-top:10px;
+    align-items:center;
+  }
+  .stat{
+    background:var(--card);
+    padding:10px 12px;
+    border-radius:8px;
+    min-width:120px;
+    color:var(--muted);
+    font-size:13px;
+  }
+  .stat b{ display:block; color:#e6eef6; font-size:16px; margin-bottom:4px;}
+
+  /* 右侧控制面板 */
+  .panel{
+    width:340px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:10px;
+    padding:14px;
+    box-shadow: 0 6px 26px rgba(2,6,23,0.6);
+  }
+  .panel h2{
+    margin:0 0 8px 0;
+    font-size:18px;
+    color:var(--accent);
+  }
+  .control{
+    margin:12px 0;
+  }
+  .label-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+  }
+  .label-row .desc{
+    color:var(--muted);
+    font-size:13px;
+  }
+  .range-row{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    margin-top:8px;
+  }
+  input[type="range"]{
+    -webkit-appearance:none;
+    height:6px;
+    flex:1;
+    background:rgba(255,255,255,0.06);
+    border-radius:8px;
+    outline:none;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:18px;height:18px;border-radius:50%;
+    background:var(--accent);box-shadow:0 2px 8px rgba(45,212,191,0.16);
+    cursor:pointer;
+    border:2px solid rgba(255,255,255,0.06);
+  }
+  .number{
+    width:88px;
+    background:transparent;
+    border:1px solid rgba(255,255,255,0.05);
+    color:#e6eef6;padding:6px 8px;border-radius:6px;
+    text-align:right;font-size:13px;
+  }
+  .footer-note{
+    color:var(--muted);
+    font-size:13px;
+    margin-top:10px;
+    line-height:1.35;
+  }
+  .controls-row{
+    display:flex;gap:10px;margin-top:10px;
+  }
+  button{
+    background:linear-gradient(180deg,var(--accent), #0bb39f);
+    border:none;color:#042025;padding:8px 12px;border-radius:8px;font-weight:600;
+    cursor:pointer;
+  }
+  button.ghost{
+    background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);
+  }
+
+  /* 小提示标签 */
+  .chip{
+    display:inline-block;padding:6px 8px;border-radius:999px;background:rgba(255,255,255,0.03);color:var(--muted);font-size:12px;
+    margin-right:6px;
+  }
+
+  /* 圆柱阴影/流线视觉 */
+  .cylinder{
+    fill:#0b1220;
+    stroke:rgba(255,255,255,0.06);
+    stroke-width:1;
+  }
+  .wake-dot{
+    fill:rgba(45,212,191,0.95);
+    mix-blend-mode:screen;
+    opacity:0.9;
+  }
+  .wake-dot.fade{
+    opacity:0.0;
+  }
+  .cylinder-gloss{
+    fill: url(#gradGloss);
+    pointer-events:none;
+  }
+
+  /* 小屏幕适配 */
+  @media (max-width:980px){
+    .app{flex-direction:column;padding:12px;}
+    .panel{width:100%;}
+  }
+</style>
+</head>
+<body>
+<div class="app" role="application" aria-label="卡门涡街可视化">
+  <div class="viz" id="vizCard">
+    <svg id="viz" viewBox="0 0 1000 480" preserveAspectRatio="xMidYMid meet" aria-label="卡门涡街可视化区">
+      <defs>
+        <radialGradient id="g1" cx="30%" cy="30%" r="70%">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.06)"/>
+          <stop offset="100%" stop-color="rgba(255,255,255,0.01)"/>
+        </radialGradient>
+        <linearGradient id="gradGloss" x1="0" x2="1">
+          <stop offset="0" stop-color="rgba(255,255,255,0.12)"/>
+          <stop offset="1" stop-color="rgba(255,255,255,0.02)"/>
+        </linearGradient>
+      </defs>
+
+      <!-- 背景参考流线 -->
+      <g id="streamlines" opacity="0.12">
+        <!-- subtle horizontal lines to indicate flow -->
+        <rect x="0" y="0" width="1000" height="480" fill="url(#g1)"></rect>
+      </g>
+
+      <!-- 圆柱 -->
+      <g id="body">
+        <!-- cylinder circle will be drawn by script to match D -->
+      </g>
+
+      <!-- vortices container -->
+      <g id="vortices"></g>
+
+      <!-- optional: centerline -->
+      <line id="centerline" x1="0" y1="240" x2="1000" y2="240" stroke="rgba(255,255,255,0.02)"></line>
+    </svg>
+
+    <div class="hud" aria-hidden="false">
+      <div class="stat">
+        <div class="desc">流速 U</div>
+        <b id="statU">1.00 m/s</b>
+      </div>
+      <div class="stat">
+        <div class="desc">粘度 ν（运动粘度）</div>
+        <b id="statNu">1.00e-06 m²/s</b>
+      </div>
+      <div class="stat">
+        <div class="desc">圆柱直径 D</div>
+        <b id="statD">0.05 m</b>
+      </div>
+      <div class="stat">
+        <div class="desc">雷诺数 Re</div>
+        <b id="statRe">5000</b>
+      </div>
+    </div>
+  </div>
+
+  <aside class="panel" aria-label="控制面板">
+    <h2>卡门涡街 控制面板</h2>
+    <div class="control">
+      <div class="label-row">
+        <div>
+          <div class="desc">流速（U）</div>
+          <div class="desc" style="color:var(--muted)">入流速度，影响雷诺数和剥离频率</div>
+        </div>
+        <div id="uValueDisplay" class="desc">1.00 m/s</div>
+      </div>
+      <div class="range-row">
+        <input id="uRange" type="range" min="0.1" max="10" step="0.01" value="1.00" aria-label="流速滑块">
+        <input id="uNum" class="number" type="number" min="0.1" max="10" step="0.01" value="1.00" aria-label="流速数值输入">
+      </div>
+    </div>
+
+    <div class="control">
+      <div class="label-row">
+        <div>
+          <div class="desc">运动粘度（ν）</div>
+          <div class="desc" style="color:var(--muted)">单位：m²/s（例如水 ~1e-6，空气 ~1.5e-5）</div>
+        </div>
+        <div id="nuValueDisplay" class="desc">1.00e-06 m²/s</div>
+      </div>
+      <div class="range-row">
+        <!-- slider mapped logarithmically in JS for better UX -->
+        <input id="nuRange" type="range" min="-8" max="-3" step="0.01" value="-6" aria-label="粘度滑块（对数刻度）">
+        <input id="nuNum" class="number" type="number" min="1e-8" max="1e-3" step="1e-8" value="0.000001" aria-label="粘度数值输入">
+      </div>
+    </div>
+
+    <div class="control">
+      <div class="label-row">
+        <div>
+          <div class="desc">圆柱直径（D）</div>
+          <div class="desc" style="color:var(--muted)">单位：米，影响尺寸和剥离周期</div>
+        </div>
+        <div id="dValueDisplay" class="desc">0.05 m</div>
+      </div>
+      <div class="range-row">
+        <input id="dRange" type="range" min="0.01" max="0.20" step="0.001" value="0.05" aria-label="直径滑块">
+        <input id="dNum" class="number" type="number" min="0.01" max="0.20" step="0.001" value="0.05" aria-label="直径数值输入">
+      </div>
+    </div>
+
+    <div class="controls-row">
+      <button id="pauseBtn">暂停</button>
+      <button id="resetBtn" class="ghost">重置参数</button>
+    </div>
+
+    <div class="footer-note" aria-live="polite">
+      <div class="chip">物理提示</div>
+      采用经验斯特劳哈尔数（St≈0.2）近似：剥离频率 f ≈ St·U / D。雷诺数 Re = U·D / ν。滑块支持快速探索不同 Re 区间：低粘度（高 Re）产生强烈、清晰的涡街；高粘度（低 Re）会迅速衰减涡旋。
+    </div>
+
+    <hr style="margin:12px 0;border:0;border-top:1px solid rgba(255,255,255,0.03)">
+
+    <div style="font-size:13px;color:var(--muted)">
+      输出（实时计算）：
+      <div style="margin-top:8px;">
+        斯特劳哈尔数 (St)：<b id="stVal">0.20</b> &nbsp;&nbsp;
+        剥离频率 f：<b id="fVal">4.00</b> Hz &nbsp;&nbsp;
+        剥离周期 T：<b id="tVal">0.25</b> s
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+/*
+  交互式卡门涡街可视化脚本说明（中文注释）：
+  - 使用 SVG 元素绘制圆柱体和涡旋点（circle），通过 requestAnimationFrame 动态更新位置。
+  - 物理关系：Re = U·D/ν；使用经验 Strouhal 数 St ≈ 0.2；剥离频率 f = St·U / D
+  - 将物理量映射到像素：pxPerMeter 常量控制尺寸缩放（可根据 SVG 大小自动调整）
+  - 粘度滑块采用对数刻度（-8..-3）对应 1e-8..1e-3 m^2/s，便于探索宽范围
+*/
+
+const svg = document.getElementById('viz');
+const vorticesGroup = document.getElementById('vortices');
+const bodyGroup = document.getElementById('body');
+const centerY = 240; // SVG 中心线 y
+
+// UI 元素
+const uRange = document.getElementById('uRange');
+const uNum = document.getElementById('uNum');
+const uValueDisplay = document.getElementById('uValueDisplay');
+
+const nuRange = document.getElementById('nuRange');
+const nuNum = document.getElementById('nuNum');
+const nuValueDisplay = document.getElementById('nuValueDisplay');
+
+const dRange = document.getElementById('dRange');
+const dNum = document.getElementById('dNum');
+const dValueDisplay = document.getElementById('dValueDisplay');
+
+const statU = document.getElementById('statU');
+const statNu = document.getElementById('statNu');
+const statD = document.getElementById('statD');
+const statRe = document.getElementById('statRe');
+
+const stVal = document.getElementById('stVal');
+const fVal = document.getElementById('fVal');
+const tVal = document.getElementById('tVal');
+
+const pauseBtn = document.getElementById('pauseBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+let paused = false;
+
+// 初始参数（SI 单位）
+let U = parseFloat(uRange.value); // m/s
+let D = parseFloat(dRange.value); // m
+let nu = Math.pow(10, parseFloat(nuRange.value)); // m^2/s (从对数滑块得到)
+let St = 0.20; // 经验值，可在界面展示但固定
+
+// 映射：物理到像素
+const SVG_WIDTH = 1000;
+const SVG_HEIGHT = 480;
+const cylinderX = 150; // 圆柱 x 位置（像素）
+const rightLimit = SVG_WIDTH + 200;
+
+// pxPerMeter 通过 SVG 大小和期望可见长度自动确定
+let pxPerMeter = 800; // 初始估值 (像素/米)
+
+// 动画与涡旋管理
+let vortices = []; // 存储活动涡旋
+let lastSpawnTime = 0;
+let signToggle = 1; // 交替上下
+let lastTime = performance.now();
+
+// 初始化界面数值
+function updateUIFromParams(){
+  uValueDisplay.textContent = U.toFixed(2) + ' m/s';
+  statU.textContent = U.toFixed(2) + ' m/s';
+  uNum.value = U.toFixed(2);
+
+  nuValueDisplay.textContent = nu.toExponential(2) + ' m²/s';
+  statNu.textContent = nu.toExponential(2) + ' m²/s';
+  nuNum.value = nu.toExponential(8);
+
+  dValueDisplay.textContent = D.toFixed(3) + ' m';
+  statD.textContent = D.toFixed(3) + ' m';
+  dNum.value = D.toFixed(3);
+
+  // 计算 Re, f, T
+  const Re = (U * D / nu);
+  statRe.textContent = Math.round(Re).toLocaleString();
+  stVal.textContent = St.toFixed(2);
+
+  const f = St * U / D;
+  const T = 1 / (f || 1e-9);
+  fVal.textContent = f.toFixed(3);
+  tVal.textContent = T.toFixed(3);
+}
+
+// 绘制/更新圆柱体
+function drawCylinder(){
+  // 清除旧元素
+  bodyGroup.innerHTML = '';
+  // 映射 D 到像素
+  const Dpx = Math.max(4, D * pxPerMeter);
+  const cy = centerY;
+  const cx = cylinderX;
+
+  // 主圆柱
+  const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+  circle.setAttribute('cx', cx);
+  circle.setAttribute('cy', cy);
+  circle.setAttribute('r', Dpx/2);
+  circle.setAttribute('class','cylinder');
+  bodyGroup.appendChild(circle);
+
+  // 反光高光
+  const gloss = document.createElementNS('http://www.w3.org/2000/svg','ellipse');
+  gloss.setAttribute('cx', cx - Dpx*0.18);
+  gloss.setAttribute('cy', cy - Dpx*0.22);
+  gloss.setAttribute('rx', Dpx*0.28);
+  gloss.setAttribute('ry', Dpx*0.18);
+  gloss.setAttribute('class','cylinder-gloss');
+  gloss.setAttribute('opacity',0.18);
+  bodyGroup.appendChild(gloss);
+}
+
+// 创建一个涡旋 SVG 元素（circle）并返回对象
+function spawnVortex(sign, spawnTime){
+  const Dpx = Math.max(4, D * pxPerMeter);
+  // initial position just behind cylinder
+  const startX = cylinderX + Dpx*0.6;
+  // amplitude roughly proportional to diameter and Re (higher Re => larger amplitude)
+  const Re = (U * D / nu);
+  const ampFactor = Math.tanh(Re / 1200); // 0..1
+  const baseAmplitude = Math.max(6, Dpx * 0.6);
+  const amplitude = baseAmplitude * (0.25 + 0.9 * ampFactor); // px
+
+  // convection speed (vortex core moves downstream slower than free stream; use factor)
+  const convectionCoeff = 0.7; // U_c = convectionCoeff * U (empirical)
+  const Uc = convectionCoeff * U; // m/s
+  const Uc_px_s = Uc * pxPerMeter;
+
+  // wavelength (streamwise spacing) = U_c / f
+  const f = Math.max(1e-9, St * U / D);
+  const spacing_m = Uc / f;
+  const spacing_px = spacing_m * pxPerMeter;
+
+  const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+  circle.setAttribute('cx', startX);
+  circle.setAttribute('cy', centerY + sign * 0.5 * amplitude);
+  circle.setAttribute('r', Math.max(3, Dpx*0.18));
+  circle.setAttribute('class', 'wake-dot');
+  circle.setAttribute('opacity', 0.95);
+
+  vorticesGroup.appendChild(circle);
+
+  // Decay length (higher viscosity => shorter decay length)
+  // Use Re to scale: decayLength_m ~ C * D * (Re / (Re + const))
+  const decayLength_m = 4 * D * Math.max(0.15, Re / (Re + 500)); // meters
+  const decayLength_px = decayLength_m * pxPerMeter;
+
+  return {
+    el: circle,
+    startX,
+    x: startX,
+    spawnTime,
+    sign,
+    amplitude,
+    Uc_px_s,
+    spacing_px,
+    decayLength_px
+  };
+}
+
+// 清理远离视野的涡旋
+function cleanupVortices(){
+  vortices = vortices.filter(v=>{
+    if (v.x > rightLimit || v.x < -200){
+      // remove DOM
+      try{ vorticesGroup.removeChild(v.el); }catch(e){}
+      return false;
+    }
+    return true;
+  });
+}
+
+// 主动画循环
+function animate(now){
+  if (paused){
+    lastTime = now;
+    requestAnimationFrame(animate);
+    return;
+  }
+  const dt = (now - lastTime) / 1000; // s
+  lastTime = now;
+
+  // params
+  const f = Math.max(1e-9, St * U / D); // Hz
+  const spawnInterval = 1 / f; // s
+
+  // spawn logic
+  if (now - lastSpawnTime > spawnInterval * 1000 * 0.5){ // half-period spawn to alternate
+    // spawn one vortex (alternating sign)
+    const v = spawnVortex(signToggle, now/1000);
+    signToggle *= -1;
+    vortices.push(v);
+    lastSpawnTime = now;
+  }
+
+  // update vortices
+  vortices.forEach(v=>{
+    // move downstream
+    v.x += v.Uc_px_s * dt;
+    // horizontal distance from start
+    const dx = v.x - v.startX;
+    // streamwise phase controls vertical oscillation: we use dx / spacing to make wave-like pattern
+    const phase = (dx / Math.max(1, v.spacing_px)) * Math.PI * 2;
+    // vertical pos with exponential decay based on distance and decayLength
+    const decay = Math.exp(-dx / Math.max(1, v.decayLength_px));
+    const y = centerY + v.sign * v.amplitude * Math.sin(phase) * decay;
+
+    // alpha (opacity) also decays
+    const alpha = Math.max(0.02, 0.95 * decay);
+
+    v.el.setAttribute('cx', v.x);
+    v.el.setAttribute('cy', y);
+    v.el.setAttribute('opacity', alpha);
+
+    // optional: reduce radius as it decays
+    const baseR = Math.max(3, (D * pxPerMeter) * 0.18);
+    const r = Math.max(1.6, baseR * (0.5 + 0.5 * decay));
+    v.el.setAttribute('r', r);
+  });
+
+  cleanupVortices();
+
+  requestAnimationFrame(animate);
+}
+
+// 处理控件联动（滑块与数字输入）
+function setupControls(){
+  // U
+  uRange.addEventListener('input', e=>{
+    U = parseFloat(e.target.value);
+    uNum.value = U.toFixed(2);
+    updateUIFromParams();
+    drawCylinder();
+  });
+  uNum.addEventListener('change', e=>{
+    let val = parseFloat(e.target.value);
+    if (isNaN(val)) val = 1;
+    val = Math.max(parseFloat(uRange.min), Math.min(parseFloat(uRange.max), val));
+    U = val;
+    uRange.value = U;
+    updateUIFromParams();
+    drawCylinder();
+  });
+
+  // nu: slider is logarithmic: nu = 10 ^ sliderValue
+  nuRange.addEventListener('input', e=>{
+    const logv = parseFloat(e.target.value);
+    nu = Math.pow(10, logv);
+    nuNum.value = nu.toExponential(8);
+    updateUIFromParams();
+    drawCylinder();
+  });
+  nuNum.addEventListener('change', e=>{
+    let val = parseFloat(e.target.value);
+    if (!isFinite(val) || val <= 0) val = 1e-6;
+    val = Math.max(1e-8, Math.min(1e-3, val));
+    nu = val;
+    const logv = Math.log10(nu);
+    nuRange.value = logv;
+    nuNum.value = nu.toExponential(8);
+    updateUIFromParams();
+    drawCylinder();
+  });
+
+  // D
+  dRange.addEventListener('input', e=>{
+    D = parseFloat(e.target.value);
+    dNum.value = D.toFixed(3);
+    updateUIFromParams();
+    drawCylinder();
+  });
+  dNum.addEventListener('change', e=>{
+    let val = parseFloat(e.target.value);
+    if (isNaN(val)) val = 0.05;
+    val = Math.max(parseFloat(dRange.min), Math.min(parseFloat(dRange.max), val));
+    D = val;
+    dRange.value = D;
+    updateUIFromParams();
+    drawCylinder();
+  });
+
+  // pause / reset
+  pauseBtn.addEventListener('click', ()=>{
+    paused = !paused;
+    pauseBtn.textContent = paused ? '继续' : '暂停';
+    if (!paused){
+      // resume animation loop will continue
+    }
+  });
+
+  resetBtn.addEventListener('click', ()=>{
+    // reset to defaults
+    U = 1.0;
+    D = 0.05;
+    nu = 1e-6;
+    uRange.value = U; uNum.value = U.toFixed(2);
+    dRange.value = D; dNum.value = D.toFixed(3);
+    nuRange.value = Math.log10(nu); nuNum.value = nu.toExponential(8);
+    // clear vortices
+    vortices.forEach(v => {
+      try{ vorticesGroup.removeChild(v.el); }catch(e){}
+    });
+    vortices = [];
+    updateUIFromParams();
+    drawCylinder();
+  });
+}
+
+// 在画布尺寸或窗口变化时调整像素缩放（使圆柱和涡旋视觉效果合理）
+function recomputeScale(){
+  // 我们希望在默认配置下（D~0.05m）得到大约 30~80 px 的直径
+  // 目标 Dpx ≈ 0.06 * SVG_WIDTH 等（动态）
+  // 更稳妥：根据面板宽度决定 pxPerMeter
+  const desiredDpxForDefault = 60; // px for D=0.05m -> => pxPerMeter = 60 / 0.05 = 1200
+  pxPerMeter = desiredDpxForDefault / 0.05;
+  // 限制 pxPerMeter 不要太大
+  pxPerMeter = Math.max(250, Math.min(2000, pxPerMeter));
+}
+
+// 初始化
+function init(){
+  recomputeScale();
+  updateUIFromParams();
+  drawCylinder();
+  setupControls();
+  lastSpawnTime = performance.now();
+  requestAnimationFrame(animate);
+
+  // accessibility: allow keyboard increments for sliders (native inputs already support)
+  window.addEventListener('resize', ()=>{
+    recomputeScale();
+    drawCylinder();
+  });
+}
+
+// 启动
+init();
+
+</script>
+</body>
+</html>
