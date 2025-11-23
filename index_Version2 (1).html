@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>交互式卡门涡街（SVG + JS 动画）</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --ui-bg:#0f1724;
+    --panel-bg:#0b1220;
+    --accent:#2dd4bf;
+    --muted:#9aa4b2;
+    --card:#071024;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial;
+    background: linear-gradient(180deg,#071028 0%, #07101a 60%, #06111a 100%);
+    color:#e6eef6;
+  }
+  .app{
+    display:flex;
+    gap:20px;
+    padding:20px;
+    box-sizing:border-box;
+    align-items:flex-start;
+    max-width:1200px;
+    margin:0 auto;
+  }
+
+  /* 左侧 SVG 可视化区域 */
+  .viz{
+    background: linear-gradient(90deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:10px;
+    padding:14px;
+    box-shadow: 0 6px 24px rgba(2,6,23,0.6);
+    flex:1 1 720px;
+  }
+  svg{
+    width:100%;
+    height:440px;
+    display:block;
+    background: linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));
+    border-radius:6px;
+    overflow:visible;
+  }
+  .hud{
+    display:flex;
+    gap:14px;
+    margin-top:10px;
+    align-items:center;
+  }
+  .stat{
+    background:var(--card);
+    padding:10px 12px;
+    border-radius:8px;
+    min-width:120px;
+    color:var(--muted);
+    font-size:13px;
+  }
+  .stat b{ display:block; color:#e6eef6; font-size:16px; margin-bottom:4px;}
+
+  /* 右侧控制面板 */
+  .panel{
+    width:340px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+    border-radius:10px;
+    padding:14px;
+    box-shadow: 0 6px 26px rgba(2,6,23,0.6);
+  }
+  .panel h2{
+    margin:0 0 8px 0;
+    font-size:18px;
+    color:var(--accent);
+  }
+  .control{
+    margin:12px 0;
+  }
+  .label-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+  }
+  .label-row .desc{
+    color:var(--muted);
+    font-size:13px;
+  }
+  .range-row{
+    display:flex;
+    gap:10px;
+    align-items:center;
+    margin-top:8px;
+  }
+  input[type="range"]{
+    -webkit-appearance:none;
+    height:6px;
+    flex:1;
+    background:rgba(255,255,255,0.06);
+    border-radius:8px;
+    outline:none;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:18px;height:18px;border-radius:50%;
+    background:var(--accent);box-shadow:0 2px 8px rgba(45,212,191,0.16);
+    cursor:pointer;
+    border:2px solid rgba(255,255,255,0.06);
+  }
+  .number{
+    width:88px;
+    background:transparent;
+    border:1px solid rgba(255,255,255,0.05);
+    color:#e6eef6;padding:6px 8px;border-radius:6px;
+    text-align:right;font-size:13px;
+  }
+  .footer-note{
+    color:var(--muted);
+    font-size:13px;
+    margin-top:10px;
+    line-height:1.35;
+  }
+  .controls-row{
+    display:flex;gap:10px;margin-top:10px;
+  }
+  button{
+    background:linear-gradient(180deg,var(--accent), #0bb39f);
+    border:none;color:#042025;padding:8px 12px;border-radius:8px;font-weight:600;
+    cursor:pointer;
+  }
+  button.ghost{
+    background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);
+  }
+
+  /* 小提示标签 */
+  .chip{
+    display:inline-block;padding:6px 8px;border-radius:999px;background:rgba(255,255,255,0.03);color:var(--muted);font-size:12px;
+    margin-right:6px;
+  }
+
+  /* 圆柱阴影/流线视觉 */
+  .cylinder{
+    fill:#0b1220;
+    stroke:rgba(255,255,255,0.06);
+    stroke-width:1;
+  }
+  .wake-dot{
+    fill:rgba(45,212,191,0.95);
+    mix-blend-mode:screen;
+    opacity:0.95;
+  }
+  .wake-dot.fade{
+    opacity:0.0;
+  }
+  .cylinder-gloss{
+    fill: url(#gradGloss);
+    pointer-events:none;
+  }
+
+  /* 小屏幕适配 */
+  @media (max-width:980px){
+    .app{flex-direction:column;padding:12px;}
+    .panel{width:100%;}
+  }
+</style>
+</head>
+<body>
+<div class="app" role="application" aria-label="卡门涡街可视化">
+  <div class="viz" id="vizCard">
+    <svg id="viz" viewBox="0 0 1000 480" preserveAspectRatio="xMidYMid meet" aria-label="卡门涡街可视化区">
+      <defs>
+        <radialGradient id="g1" cx="30%" cy="30%" r="70%">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.06)"/>
+          <stop offset="100%" stop-color="rgba(255,255,255,0.01)"/>
+        </radialGradient>
+        <linearGradient id="gradGloss" x1="0" x2="1">
+          <stop offset="0" stop-color="rgba(255,255,255,0.12)"/>
+          <stop offset="1" stop-color="rgba(255,255,255,0.02)"/>
+        </linearGradient>
+      </defs>
+
+      <!-- 背景参考流线 -->
+      <g id="streamlines" opacity="0.12">
+        <rect x="0" y="0" width="1000" height="480" fill="url(#g1)"></rect>
+      </g>
+
+      <!-- 圆柱 -->
+      <g id="body"></g>
+
+      <!-- vortices container -->
+      <g id="vortices"></g>
+
+      <!-- optional: centerline -->
+      <line id="centerline" x1="0" y1="240" x2="1000" y2="240" stroke="rgba(255,255,255,0.02)"></line>
+    </svg>
+
+    <div class="hud" aria-hidden="false">
+      <div class="stat">
+        <div class="desc">流速 U</div>
+        <b id="statU">1.00 m/s</b>
+      </div>
+      <div class="stat">
+        <div class="desc">粘度 ν（运动粘度）</div>
+        <b id="statNu">1.00e-06 m²/s</b>
+      </div>
+      <div class="stat">
+        <div class="desc">圆柱直径 D</div>
+        <b id="statD">0.05 m</b>
+      </div>
+      <div class="stat">
+        <div class="desc">雷诺数 Re</div>
+        <b id="statRe">5000</b>
+      </div>
+    </div>
+  </div>
+
+  <aside class="panel" aria-label="控制面板">
+    <h2>卡门涡街 控制面板</h2>
+    <div class="control">
+      <div class="label-row">
+        <div>
+          <div class="desc">流速（U）</div>
+          <div class="desc" style="color:var(--muted)">入流速度，影响雷诺数和剥离频率</div>
+        </div>
+        <div id="uValueDisplay" class="desc">1.00 m/s</div>
+      </div>
+      <div class="range-row">
+        <input id="uRange" type="range" min="0.1" max="10" step="0.01" value="1.00" aria-label="流速滑块">
+        <input id="uNum" class="number" type="number" min="0.1" max="10" step="0.01" value="1.00" aria-label="流速数值输入">
+      </div>
+    </div>
+
+    <div class="control">
+      <div class="label-row">
+        <div>
+          <div class="desc">运动粘度（ν）</div>
+          <div class="desc" style="color:var(--muted)">单位：m²/s（例如水 ~1e-6，空气 ~1.5e-5）</div>
+        </div>
+        <div id="nuValueDisplay" class="desc">1.00e-06 m²/s</div>
+      </div>
+      <div class="range-row">
+        <!-- slider mapped logarithmically in JS for better UX -->
+        <input id="nuRange" type="range" min="-8" max="-3" step="0.01" value="-6" aria-label="粘度滑块（对数刻度）">
+        <input id="nuNum" class="number" type="number" min="1e-8" max="1e-3" step="1e-8" value="0.000001" aria-label="粘度数值输入">
+      </div>
+    </div>
+
+    <div class="control">
+      <div class="label-row">
+        <div>
+          <div class="desc">圆柱直径（D）</div>
+          <div class="desc" style="color:var(--muted)">单位：米，影响尺寸和剥离周期</div>
+        </div>
+        <div id="dValueDisplay" class="desc">0.05 m</div>
+      </div>
+      <div class="range-row">
+        <input id="dRange" type="range" min="0.01" max="0.20" step="0.001" value="0.05" aria-label="直径滑块">
+        <input id="dNum" class="number" type="number" min="0.01" max="0.20" step="0.001" value="0.05" aria-label="直径数值输入">
+      </div>
+    </div>
+
+    <div class="controls-row">
+      <button id="pauseBtn">暂停</button>
+      <button id="resetBtn" class="ghost">重置参数</button>
+    </div>
+
+    <div class="footer-note" aria-live="polite">
+      <div class="chip">物理提示</div>
+      采用经验斯特劳哈尔数（St≈0.2）近似：剥离频率 f ≈ St·U / D。雷诺数 Re = U·D / ν。滑块支持快速探索不同 Re 区间：低粘度（高 Re）产生强烈、清晰的涡街；高粘度（低 Re）会迅速衰减涡旋。
+    </div>
+
+    <hr style="margin:12px 0;border:0;border-top:1px solid rgba(255,255,255,0.03)">
+
+    <div style="font-size:13px;color:var(--muted)">
+      输出（实时计算）：
+      <div style="margin-top:8px;">
+        斯特劳哈尔数 (St)：<b id="stVal">0.20</b> &nbsp;&nbsp;
+        剥离频率 f：<b id="fVal">4.00</b> Hz &nbsp;&nbsp;
+        剥离周期 T：<b id="tVal">0.25</b> s
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+/* 修正版脚本说明（已修复可能导致“没有动画”的问题）：
+   - 确保脚本完整且已初始化 lastTime/lastSpawnTime，避免首次不触发。
+   - 添加更稳健的 spawn 条件与初始涡旋种子（确保一打开就能看到动画）。
+   - 对粘度对数滑块与数值输入做严格同步（避免无效值导致异常）。
+   - 增加简单错误保护，避免出现 NaN 导致循环中断。
+*/
+
+(function(){
+  const svg = document.getElementById('viz');
+  const vorticesGroup = document.getElementById('vortices');
+  const bodyGroup = document.getElementById('body');
+  const centerY = 240; // SVG 中心线 y
+
+  // UI 元素
+  const uRange = document.getElementById('uRange');
+  const uNum = document.getElementById('uNum');
+
+  const nuRange = document.getElementById('nuRange');
+  const nuNum = document.getElementById('nuNum');
+
+  const dRange = document.getElementById('dRange');
+  const dNum = document.getElementById('dNum');
+
+  const uValueDisplay = document.getElementById('uValueDisplay');
+  const nuValueDisplay = document.getElementById('nuValueDisplay');
+  const dValueDisplay = document.getElementById('dValueDisplay');
+
+  const statU = document.getElementById('statU');
+  const statNu = document.getElementById('statNu');
+  const statD = document.getElementById('statD');
+  const statRe = document.getElementById('statRe');
+
+  const stVal = document.getElementById('stVal');
+  const fVal = document.getElementById('fVal');
+  const tVal = document.getElementById('tVal');
+
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resetBtn = document.getElementById('resetBtn');
+
+  let paused = false;
+
+  // 初始参数（SI 单位）
+  let U = parseFloat(uRange.value) || 1.0; // m/s
+  let D = parseFloat(dRange.value) || 0.05; // m
+  let nu = Math.pow(10, parseFloat(nuRange.value) || -6); // m^2/s (从对数滑块得到)
+  const St = 0.20; // 经验值
+
+  // 映射：物理到像素
+  const SVG_WIDTH = 1000;
+  const SVG_HEIGHT = 480;
+  const cylinderX = 150; // 圆柱 x 位置（像素）
+  const rightLimit = SVG_WIDTH + 220;
+
+  let pxPerMeter = 800;
+
+  // 动画与涡旋管理
+  let vortices = []; // 存储活动涡旋
+  let lastSpawnTime = 0;
+  let signToggle = 1; // 交替上下
+  let lastTime = performance.now();
+
+  // --- UI 更新函数 ---
+  function updateUIFromParams(){
+    // protect against invalid numbers
+    if (!isFinite(U) || U <= 0) U = 1.0;
+    if (!isFinite(D) || D <= 0) D = 0.05;
+    if (!isFinite(nu) || nu <= 0) nu = 1e-6;
+
+    uValueDisplay.textContent = U.toFixed(2) + ' m/s';
+    statU.textContent = U.toFixed(2) + ' m/s';
+    uNum.value = U.toFixed(2);
+
+    nuValueDisplay.textContent = nu.toExponential(2) + ' m²/s';
+    statNu.textContent = nu.toExponential(2) + ' m²/s';
+    nuNum.value = nu.toExponential(8);
+
+    dValueDisplay.textContent = D.toFixed(3) + ' m';
+    statD.textContent = D.toFixed(3) + ' m';
+    dNum.value = D.toFixed(3);
+
+    const Re = (U * D / nu) || 0;
+    statRe.textContent = (isFinite(Re) ? Math.round(Re).toLocaleString() : '—');
+    stVal.textContent = St.toFixed(2);
+
+    const f = (St * U / D) || 0;
+    const T = f > 0 ? 1 / f : 0;
+    fVal.textContent = isFinite(f) ? f.toFixed(3) : '—';
+    tVal.textContent = isFinite(T) ? T.toFixed(3) : '—';
+  }
+
+  // --- 缩放 / 绘制圆柱 ---
+  function recomputeScale(){
+    const desiredDpxForDefault = 60;
+    pxPerMeter = desiredDpxForDefault / 0.05;
+    pxPerMeter = Math.max(250, Math.min(2000, pxPerMeter));
+  }
+
+  function drawCylinder(){
+    bodyGroup.innerHTML = '';
+    const Dpx = Math.max(4, D * pxPerMeter);
+    const cy = centerY;
+    const cx = cylinderX;
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', Dpx/2);
+    circle.setAttribute('class','cylinder');
+    bodyGroup.appendChild(circle);
+
+    const gloss = document.createElementNS('http://www.w3.org/2000/svg','ellipse');
+    gloss.setAttribute('cx', cx - Dpx*0.18);
+    gloss.setAttribute('cy', cy - Dpx*0.22);
+    gloss.setAttribute('rx', Dpx*0.28);
+    gloss.setAttribute('ry', Dpx*0.18);
+    gloss.setAttribute('class','cylinder-gloss');
+    gloss.setAttribute('opacity',0.18);
+    bodyGroup.appendChild(gloss);
+  }
+
+  // --- 创建涡旋 ---
+  function spawnVortex(sign, spawnTime){
+    const Dpx = Math.max(4, D * pxPerMeter);
+    const startX = cylinderX + Dpx*0.6;
+
+    const Re = (U * D / nu) || 0;
+    const ampFactor = Math.tanh(Re / 1200);
+    const baseAmplitude = Math.max(6, Dpx * 0.6);
+    const amplitude = baseAmplitude * (0.25 + 0.9 * ampFactor);
+
+    const convectionCoeff = 0.7;
+    const Uc = convectionCoeff * U;
+    const Uc_px_s = Uc * pxPerMeter;
+
+    const f = Math.max(1e-9, St * U / D);
+    const spacing_m = Uc / f;
+    const spacing_px = spacing_m * pxPerMeter;
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    circle.setAttribute('cx', startX);
+    circle.setAttribute('cy', centerY + sign * 0.5 * amplitude);
+    circle.setAttribute('r', Math.max(3, Dpx*0.18));
+    circle.setAttribute('class', 'wake-dot');
+    circle.setAttribute('opacity', 0.95);
+    vorticesGroup.appendChild(circle);
+
+    const decayLength_m = 4 * D * Math.max(0.15, Re / (Re + 500));
+    const decayLength_px = decayLength_m * pxPerMeter;
+
+    return {
+      el: circle,
+      startX,
+      x: startX,
+      spawnTime,
+      sign,
+      amplitude,
+      Uc_px_s,
+      spacing_px,
+      decayLength_px
+    };
+  }
+
+  // 清理超出的涡旋
+  function cleanupVortices(){
+    vortices = vortices.filter(v=>{
+      if (!v.el) return false;
+      const remove = (v.x > rightLimit || v.x < -300);
+      if (remove){
+        try{ vorticesGroup.removeChild(v.el); }catch(e){}
+      }
+      return !remove;
+    });
+  }
+
+  // --- 动画主循环 ---
+  function animate(now){
+    if (!lastTime) lastTime = now;
+    if (!lastSpawnTime) lastSpawnTime = now - 200; // allow initial spawn quickly
+
+    if (paused){
+      lastTime = now;
+      requestAnimationFrame(animate);
+      return;
+    }
+
+    const dt = Math.max(0, (now - lastTime) / 1000);
+    lastTime = now;
+
+    // 实际参数保护
+    if (!isFinite(U) || !isFinite(D) || !isFinite(nu)) {
+      requestAnimationFrame(animate);
+      return;
+    }
+
+    const f = Math.max(1e-9, St * U / D);
+    const spawnIntervalMs = (1 / f) * 1000;
+
+    // spawn at roughly half-periods to alternate sign; ensure at least one spawn on load
+    if (now - lastSpawnTime >= Math.max(40, spawnIntervalMs * 0.5)) {
+      const v = spawnVortex(signToggle, now/1000);
+      signToggle *= -1;
+      vortices.push(v);
+      lastSpawnTime = now;
+    }
+
+    // update vortices positions
+    vortices.forEach(v=>{
+      v.x += v.Uc_px_s * dt;
+      const dx = v.x - v.startX;
+      const phase = (v.spacing_px > 0) ? (dx / v.spacing_px) * Math.PI * 2 : 0;
+      const decay = Math.exp(-Math.max(0, dx) / Math.max(1, v.decayLength_px));
+      const y = centerY + v.sign * v.amplitude * Math.sin(phase) * decay;
+      const alpha = Math.max(0.02, 0.95 * decay);
+
+      v.el.setAttribute('cx', v.x);
+      v.el.setAttribute('cy', y);
+      v.el.setAttribute('opacity', alpha);
+
+      const baseR = Math.max(3, (D * pxPerMeter) * 0.18);
+      const r = Math.max(1.6, baseR * (0.5 + 0.5 * decay));
+      v.el.setAttribute('r', r);
+    });
+
+    cleanupVortices();
+    requestAnimationFrame(animate);
+  }
+
+  // --- 控件联动 ---
+  function setupControls(){
+    // U
+    uRange.addEventListener('input', e=>{
+      U = parseFloat(e.target.value) || U;
+      uNum.value = U.toFixed(2);
+      updateUIFromParams();
+      drawCylinder();
+    });
+    uNum.addEventListener('change', e=>{
+      let val = parseFloat(e.target.value);
+      if (!isFinite(val)) val = 1.0;
+      val = Math.max(parseFloat(uRange.min), Math.min(parseFloat(uRange.max), val));
+      U = val;
+      uRange.value = U;
+      updateUIFromParams();
+      drawCylinder();
+    });
+
+    // nu (对数滑块)
+    nuRange.addEventListener('input', e=>{
+      const logv = parseFloat(e.target.value);
+      if (!isFinite(logv)) return;
+      nu = Math.pow(10, logv);
+      nuNum.value = nu.toExponential(8);
+      updateUIFromParams();
+      drawCylinder();
+    });
+    nuNum.addEventListener('change', e=>{
+      let val = parseFloat(e.target.value);
+      if (!isFinite(val) || val <= 0) val = 1e-6;
+      val = Math.max(1e-8, Math.min(1e-3, val));
+      nu = val;
+      const logv = Math.log10(nu);
+      nuRange.value = logv;
+      nuNum.value = nu.toExponential(8);
+      updateUIFromParams();
+      drawCylinder();
+    });
+
+    // D
+    dRange.addEventListener('input', e=>{
+      D = parseFloat(e.target.value) || D;
+      dNum.value = D.toFixed(3);
+      updateUIFromParams();
+      drawCylinder();
+    });
+    dNum.addEventListener('change', e=>{
+      let val = parseFloat(e.target.value);
+      if (!isFinite(val)) val = 0.05;
+      val = Math.max(parseFloat(dRange.min), Math.min(parseFloat(dRange.max), val));
+      D = val;
+      dRange.value = D;
+      updateUIFromParams();
+      drawCylinder();
+    });
+
+    // pause / reset
+    pauseBtn.addEventListener('click', ()=>{
+      paused = !paused;
+      pauseBtn.textContent = paused ? '继续' : '暂停';
+      if (!paused){
+        lastTime = performance.now();
+      }
+    });
+
+    resetBtn.addEventListener('click', ()=>{
+      U = 1.0;
+      D = 0.05;
+      nu = 1e-6;
+      uRange.value = U; uNum.value = U.toFixed(2);
+      dRange.value = D; dNum.value = D.toFixed(3);
+      nuRange.value = Math.log10(nu); nuNum.value = nu.toExponential(8);
+      vortices.forEach(v => {
+        try{ vorticesGroup.removeChild(v.el); }catch(e){}
+      });
+      vortices = [];
+      updateUIFromParams();
+      drawCylinder();
+      lastSpawnTime = 0; // force immediate spawn
+    });
+  }
+
+  // 初始化
+  function init(){
+    recomputeScale();
+    updateUIFromParams();
+    drawCylinder();
+    setupControls();
+
+    // initialize spawn timers so first vortices appear immediately
+    lastTime = performance.now();
+    lastSpawnTime = 0;
+    // create a couple of initial vortices so user sees animation right away
+    vortices.push(spawnVortex(1, lastTime/1000));
+    signToggle = -1;
+    vortices.push(spawnVortex(signToggle, lastTime/1000));
+    signToggle = 1;
+
+    requestAnimationFrame(animate);
+
+    window.addEventListener('resize', ()=>{
+      recomputeScale();
+      drawCylinder();
+    });
+  }
+
+  // start
+  init();
+
+  // expose for debugging (optional)
+  window.__karman_viz = {
+    getState: ()=>({U,D,nu,pxPerMeter, vorticesCount: vortices.length})
+  };
+})();
+</script>
+</body>
+</html>
